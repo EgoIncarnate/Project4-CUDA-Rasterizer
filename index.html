@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset='utf-8'>
+    <meta http-equiv="X-UA-Compatible" content="chrome=1">
+    <meta name="description" content="Project4-cuda-rasterizer : CIS 565: CUDA Rasterizer">
+
+    <link rel="stylesheet" type="text/css" media="screen" href="stylesheets/stylesheet.css">
+
+    <title>Project4-cuda-rasterizer</title>
+  </head>
+
+  <body>
+
+    <!-- HEADER -->
+    <div id="header_wrap" class="outer">
+        <header class="inner">
+          <a id="forkme_banner" href="https://github.com/StoneBird/Project4-CUDA-Rasterizer">View on GitHub</a>
+
+          <h1 id="project_title">Project4-cuda-rasterizer</h1>
+          <h2 id="project_tagline">CIS 565: CUDA Rasterizer</h2>
+
+            <section id="downloads">
+              <a class="zip_download_link" href="https://github.com/StoneBird/Project4-CUDA-Rasterizer/zipball/master">Download this project as a .zip file</a>
+              <a class="tar_download_link" href="https://github.com/StoneBird/Project4-CUDA-Rasterizer/tarball/master">Download this project as a tar.gz file</a>
+            </section>
+        </header>
+    </div>
+
+    <!-- MAIN CONTENT -->
+    <div id="main_content_wrap" class="outer">
+      <section id="main_content" class="inner">
+        <h1>
+<a id="tile-based-cuda-rasterizer" class="anchor" href="#tile-based-cuda-rasterizer" aria-hidden="true"><span class="octicon octicon-link"></span></a>Tile-based CUDA Rasterizer</h1>
+
+<p><strong>University of Pennsylvania, CIS 565: GPU Programming and Architecture, Project 4</strong></p>
+
+<ul>
+<li>Tongbo Sui</li>
+<li>Tested on: Windows 10, i5-3320M @ 2.60GHz 8GB, NVS 5400M 2GB (Personal)</li>
+</ul>
+
+<h2>
+<a id="overview" class="anchor" href="#overview" aria-hidden="true"><span class="octicon octicon-link"></span></a>Overview</h2>
+
+<p>An efficient CUDA rasterizer with two pipeline options. By default it uses tile-based rendering, but also supports scanline rendering (<code>L</code> to switch between).</p>
+
+<h2>
+<a id="video-demo" class="anchor" href="#video-demo" aria-hidden="true"><span class="octicon octicon-link"></span></a>Video Demo</h2>
+
+<h6>
+<a id="tile-based-render-demo" class="anchor" href="#tile-based-render-demo" aria-hidden="true"><span class="octicon octicon-link"></span></a>Tile-based render demo</h6>
+
+<p><a href="https://youtu.be/xNBfuONQN48"><img src="img/splash-tile.png" alt=""></a></p>
+
+<h6>
+<a id="scanline-demo" class="anchor" href="#scanline-demo" aria-hidden="true"><span class="octicon octicon-link"></span></a>Scanline demo</h6>
+
+<p><a href="https://vimeo.com/141638182"><img src="img/Splash.png" alt=""></a></p>
+
+<h2>
+<a id="quick-jump-list" class="anchor" href="#quick-jump-list" aria-hidden="true"><span class="octicon octicon-link"></span></a>Quick Jump List</h2>
+
+<ul>
+<li><a href="#pipeline-overview-scanline">Scanline pipeline</a></li>
+<li><a href="#pipeline-overview-tile-based">Tile-based pipeline</a></li>
+<li><a href="#misc-features">Misc features</a></li>
+<li><a href="#performance-analysis">Performance analysis</a></li>
+<li><a href="#references">References</a></li>
+</ul>
+
+<h2>
+<a id="pipeline-overview-scanline" class="anchor" href="#pipeline-overview-scanline" aria-hidden="true"><span class="octicon octicon-link"></span></a>Pipeline Overview (Scanline)</h2>
+
+<ul>
+<li>Vertex shading
+
+<ul>
+<li>Vertex shader with perspective transformation. Takes in vertices and transform the coordinates to window coordinates</li>
+</ul>
+</li>
+<li>Primitive assembly
+
+<ul>
+<li>Assembles triangles from the list of vertices</li>
+<li>Calculates AABB bounding box for each triangle</li>
+<li>Initializes primitive properties for shading later</li>
+</ul>
+</li>
+<li>Geometry shader (optional)
+
+<ul>
+<li>
+<code>G</code> toggle geometry shader</li>
+<li>For each triangle's first vertex, draw a line to demonstrate the vertex's normal</li>
+<li>Shader has the ability to output at most 8 primitives for each input primitive</li>
+<li>Shader output is optimized via stream compaction, where unused storage is trimmed</li>
+<li>Analysis
+
+<ul>
+<li>Performance impact: on average 2x slower, since the current shader outputs 2 primitives per input primitive</li>
+<li>Optimization: stream compaction is used to trim down the output array size</li>
+<li>Possible improvement: it might be better to simply refrain from using any compaction method, but direcly indexing the primitives during rasterization. This way the stream compaction overhead can be avoided. However it adds complexity to the next stage in the pipeline</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+<h6>
+<a id="geometry-shader-hairs-are-vertex-normals" class="anchor" href="#geometry-shader-hairs-are-vertex-normals" aria-hidden="true"><span class="octicon octicon-link"></span></a>Geometry shader. Hairs are vertex normals</h6>
+
+<p><img src="img/geometry-shading.png" alt=""></p>
+
+<ul>
+<li>Backface culling (optional)
+
+<ul>
+<li>
+<code>B</code> toggle</li>
+<li>Marks all backfaces, then remove them using stream compaction</li>
+<li>Analysis
+
+<ul>
+<li>Performance impact: varying impact on performance (see below in Performance Analysis)</li>
+<li>Optimization: stream compaction is used to trim down the output array size</li>
+<li>Possible improvement: same as geometry shader. In this case there is actually strong evidence that stream compaction overhead might be too significant</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+<h6>
+<a id="backface-culling-notice-that-backface-normals-are-removed" class="anchor" href="#backface-culling-notice-that-backface-normals-are-removed" aria-hidden="true"><span class="octicon octicon-link"></span></a>Backface culling. Notice that backface normals are removed</h6>
+
+<p><img src="img/culling.png" alt=""></p>
+
+<ul>
+<li>Rasterization
+
+<ul>
+<li>Rasterize input primitives. Uses scanline algorithm
+
+<ul>
+<li>Each thread takes care of one triangle, and scans every pixel inside the triangle's bounding box</li>
+<li>Supports lines and points
+
+<ul>
+<li>Does <strong>not</strong> support vertex shading and assembly for such primitives; only rasterization</li>
+<li>Analysis
+
+<ul>
+<li>Performance impact: no visible direct impact; however if point shader is enabled, the scene would render much faster since the rasterization logic is dramatically simplified</li>
+<li>Optimization: various kernel optimization techniques, including reordering to reduce execution dependency, and removing cache variables for lower memory dependency and higher cache hit rate</li>
+<li>Possible improvement: faster algorithm to rasterize the primitive</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li>Sub-pipeline
+
+<ul>
+<li>Pre-clipping
+
+<ul>
+<li>Window clipping: remove fragments outside window by directly shrinking the scan bounding box</li>
+<li>Scissor test (optional): same as window clipping, and further shrinks the scan bounding box
+
+<ul>
+<li>
+<code>S</code> toggle scissor test</li>
+<li>Analysis
+
+<ul>
+<li>Performance impact: direct positive impact, but only when the object is partially inside the scissor box. Even in that case, the impact is small around ~10FPS</li>
+<li>Optimization: clipping before scaning, instead of discarding fragment during scan, essentially decreases the amount of computation needed for clipped primitives</li>
+<li>Possible improvement: may be a faster calculation for the scissor box clipping</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li>Each thread scans each pixel in the triangle's bounding box
+
+<ul>
+<li>Subject to primitive size in window coordinate; the bigger, the slower
+
+<ul>
+<li>For the same object, camera being further away results in smaller object screen size; thus higher FPS</li>
+<li>On the other hand, camera being very close results in each primitive covering big proportion of screen; thus each thread scans longer; thus lower FPS</li>
+</ul>
+</li>
+<li>The overhead of calculating and sorting intersection points per scanline cancels out the benefit that such points can shrink the scan range. Scanning every pixel is actually faster in general</li>
+</ul>
+</li>
+<li>Depth test
+
+<ul>
+<li>Directly testing the current calculated depth with the shallowest</li>
+<li>Write to buffer if it wins the depth test, using atomics to avoid races</li>
+<li>Use barycentric interpolation for color, position and normal. Thus it enables rendering of flat-shade objects, as well as smooth objects</li>
+<li>Analysis on barycentric interpolatoin
+
+<ul>
+<li>Performance impact: no visible impact</li>
+<li>Optimization: none</li>
+<li>Possible improvement: none</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+<h6>
+<a id="scissor-test-fragments-outside-the-scissor-box-are-clipped" class="anchor" href="#scissor-test-fragments-outside-the-scissor-box-are-clipped" aria-hidden="true"><span class="octicon octicon-link"></span></a>Scissor test. Fragments outside the scissor box are clipped</h6>
+
+<p><img src="img/scissor.png" alt=""></p>
+
+<ul>
+<li>Fragment shading
+
+<ul>
+<li>Simple Lambert shader</li>
+<li>Each fragment is shaded with two fixed lights</li>
+</ul>
+</li>
+</ul>
+
+<h6>
+<a id="lambert-shading-with-barycentric-interpolation-two-lights-are-used-to-better-demonstrate-the-effect" class="anchor" href="#lambert-shading-with-barycentric-interpolation-two-lights-are-used-to-better-demonstrate-the-effect" aria-hidden="true"><span class="octicon octicon-link"></span></a>Lambert shading with barycentric interpolation. Two lights are used to better demonstrate the effect</h6>
+
+<p><img src="img/lambert.png" alt=""></p>
+
+<h2>
+<a id="pipeline-overview-tile-based" class="anchor" href="#pipeline-overview-tile-based" aria-hidden="true"><span class="octicon octicon-link"></span></a>Pipeline Overview (Tile-based)</h2>
+
+<ul>
+<li>Use <code>L</code> to switch between pipelines</li>
+<li>Concept
+
+<ul>
+<li>Divide-and-conquer technique applied to the pixel array, instead of primitive array</li>
+<li>Image is first divided into fix-sized bins. Such bins are relatively big in pixel size (e.g. 128x128 px). A kernel is launched to examine bounding box overlapping for each primitive against all bins
+
+<ul>
+<li>Each bin maintains a queue of overlapping primitives</li>
+</ul>
+</li>
+<li>Each bin is then divided into smaller sized tiles (e.g. 8x8 px). A kernel is launched to further examine bounding box overlapping for each bin for each primitive <em>in the bin's queue</em>
+
+<ul>
+<li>Each tile maintains a similar queue</li>
+</ul>
+</li>
+<li>Then a kernel is launched to find exact intersections for each pixel. In this case each pixel only needs to examine the primitives in the tile's queue</li>
+</ul>
+</li>
+<li>
+<strong>NOTE</strong>
+
+<ul>
+<li>The lightings are different for the two pipelines to make it easier distinguishing the current pipeline. Tile-based render has major lighting coming from top left. Scanline render has major lighting coming from top right</li>
+<li>LIMITATION: current tile-based implementation imposes limitation that there can be at most 1024 triangles covering each bin at the same time. More triangles will result in undefined clipping
+
+<ul>
+<li>Current workaround:
+
+<ul>
+<li>Adjust bin size so that less triangles will cover one single bin</li>
+<li>Zoom in more so that triangles get spaced out instead of clutching within several bins</li>
+</ul>
+</li>
+<li>Possible solution: all it needed is a thread-safe, dynamically resizable queue for each bin. This is not included in the implementation and hence the limitation. Theoretical limitation with such data structure is the memory limit of the hardware </li>
+</ul>
+</li>
+</ul>
+</li>
+<li>Vertex shading: same as scanline</li>
+<li>Primitive assembly
+
+<ul>
+<li>Assembles triangles from the input vertex list</li>
+<li>Initialize various shading property</li>
+<li>Flip coordinates to offset coordinate difference in OpenGL</li>
+<li>Cache minimum depth. This is the minimum depth of the 3 vertices of each triangle</li>
+<li>Pre-calculate signed area, and remove backfaces and degenerate faces</li>
+<li>Coarse window &amp; scissor clipping. Removes those that are completely outside of the clipping box</li>
+</ul>
+</li>
+<li>Primitive compaction
+
+<ul>
+<li>A simple stream compaction step to actually remove the marked primitives from previous stage</li>
+</ul>
+</li>
+<li>Geometry shader
+
+<ul>
+<li>Same as scanline, with slight change that also calculates bounding box of the newly added geometries</li>
+</ul>
+</li>
+<li>Bin rasterizer
+
+<ul>
+<li>Take the primitives as input, each thread is responsible for one single primitive. The thread will check coverage with all bins in the image, and push its primitive ID to that bin's coverage list, should there be any overlapping</li>
+</ul>
+</li>
+<li>Tile rasterizer
+
+<ul>
+<li>Take the previous coverage list as input. Each thread is responsible for one tile, and will check coverage in the bin's list</li>
+</ul>
+</li>
+<li>Fine rasterizer
+
+<ul>
+<li>Take the previous coverage list as input. Each thread is responsible for one pixel, and will check coverage in the tile's list</li>
+</ul>
+</li>
+<li>Fragment shader
+
+<ul>
+<li>Same as scanline. Only that it now distinguishes a fragment that isn't overlapping any primitives with one that does</li>
+<li>It will directly shade a non-overlapping fragment to black, while shade the "good" fragments with correct lighting</li>
+</ul>
+</li>
+</ul>
+
+<h2>
+<a id="misc-features" class="anchor" href="#misc-features" aria-hidden="true"><span class="octicon octicon-link"></span></a>Misc Features</h2>
+
+<ul>
+<li>Mouse-based interactive camera support
+
+<ul>
+<li>Controls
+
+<ul>
+<li>
+<code>Left button</code> hold and drag: rotate</li>
+<li>
+<code>Right button</code> hold and drag: pan</li>
+<li>Scroll: zoom</li>
+<li>
+<code>SPACE</code>: reset camera to default</li>
+</ul>
+</li>
+<li>Performance impact: no visible impact</li>
+</ul>
+</li>
+<li>
+<code>N</code>: fragment shader will use normal vector as color vector; enable to see fragment normals</li>
+</ul>
+
+<h6>
+<a id="normal-shading" class="anchor" href="#normal-shading" aria-hidden="true"><span class="octicon octicon-link"></span></a>Normal shading</h6>
+
+<p><img src="img/normal.png" alt=""></p>
+
+<ul>
+<li>
+<code>R</code>: reset to color shading (use fragment color for shaded color, instead of fragment normal)</li>
+<li>
+<code>P</code>: toggle point shader; only shows shaded vertices instead of all fragments
+
+<ul>
+<li>Not compatible with geometry shader because it will set all primitives to point; rasterization will still work, but the two effects won't show at the same time</li>
+</ul>
+</li>
+</ul>
+
+<h6>
+<a id="point-shading" class="anchor" href="#point-shading" aria-hidden="true"><span class="octicon octicon-link"></span></a>Point shading</h6>
+
+<p><img src="img/point-shading.png" alt=""></p>
+
+<h2>
+<a id="performance-analysis" class="anchor" href="#performance-analysis" aria-hidden="true"><span class="octicon octicon-link"></span></a>Performance Analysis</h2>
+
+<ul>
+<li>
+<p>Camera properties</p>
+
+<ul>
+<li>Position <code>(0,0,3)</code>
+</li>
+<li>LookAt <code>(0,0,0)</code>
+</li>
+<li>FOV = 45.0 degrees</li>
+</ul>
+</li>
+<li>
+<p>Tile-based performance breakdown</p>
+
+<ul>
+<li>Fragement shader time is almost fixed. Only dependent on window size</li>
+<li>Breakdown are core pipeline only</li>
+<li>Unlike scanline (below), FPS doesn't have obvious changes when changing camera distance. The performance depends more on # of overlapping primitives in each tile. Thus scenes of high depth complexity would have the highest negative impact on performance</li>
+</ul>
+</li>
+</ul>
+
+<h6>
+<a id="cowobj-performance-breakdown" class="anchor" href="#cowobj-performance-breakdown" aria-hidden="true"><span class="octicon octicon-link"></span></a><code>cow.obj</code> performance breakdown</h6>
+
+<p><img src="img/cow-perf-tile.png" alt=""></p>
+
+<h6>
+<a id="cowobj-fps-comparison-by-camera-distance-and-pipeline-positive-means-camera-moving-away" class="anchor" href="#cowobj-fps-comparison-by-camera-distance-and-pipeline-positive-means-camera-moving-away" aria-hidden="true"><span class="octicon octicon-link"></span></a><code>cow.obj</code> FPS comparison by camera distance and pipeline. Positive means camera moving away</h6>
+
+<p><img src="img/fps-compare.png" alt=""></p>
+
+<ul>
+<li>Scanline performance breakdown
+
+<ul>
+<li>Fragement shader time is almost fixed, since it's only dependent on the pixel count of the output window</li>
+<li>Breakdown are core pipeline only</li>
+<li>For the exact same camera properties described above, frame rate largely depends on the transformed size of the primitives, due to the current rasterization implementation
+
+<ul>
+<li>
+<code>suzanne.obj</code> and <code>flower.obj</code> see increased frame rate when camera moves away from the object, yielding smaller transformed primitive sizes</li>
+</ul>
+</li>
+<li>For <code>cow.obj</code>, camera moving away is not as effective. This may due to the fact that the performance limit of current implementation has been reached</li>
+</ul>
+</li>
+</ul>
+
+<h6>
+<a id="cowobj-performance-breakdown-1" class="anchor" href="#cowobj-performance-breakdown-1" aria-hidden="true"><span class="octicon octicon-link"></span></a><code>cow.obj</code> performance breakdown</h6>
+
+<p><img src="img/cow-perf.png" alt=""></p>
+
+<h6>
+<a id="cowobj-fps-by-camera-distance-camera-moving-away" class="anchor" href="#cowobj-fps-by-camera-distance-camera-moving-away" aria-hidden="true"><span class="octicon octicon-link"></span></a><code>cow.obj</code> FPS by camera distance, camera moving away</h6>
+
+<p><img src="img/cow-dist.png" alt=""></p>
+
+<h6>
+<a id="suzanneobj-performance-breakdown" class="anchor" href="#suzanneobj-performance-breakdown" aria-hidden="true"><span class="octicon octicon-link"></span></a><code>suzanne.obj</code> performance breakdown</h6>
+
+<p><img src="img/suzanne-perf.png" alt=""></p>
+
+<h6>
+<a id="suzanneobj-fps-by-camera-distance-camera-moving-away" class="anchor" href="#suzanneobj-fps-by-camera-distance-camera-moving-away" aria-hidden="true"><span class="octicon octicon-link"></span></a><code>suzanne.obj</code> FPS by camera distance, camera moving away</h6>
+
+<p><img src="img/suzanne-dist.png" alt=""></p>
+
+<h6>
+<a id="flowerobj-performance-breakdown" class="anchor" href="#flowerobj-performance-breakdown" aria-hidden="true"><span class="octicon octicon-link"></span></a><code>flower.obj</code> performance breakdown</h6>
+
+<p><img src="img/flower-perf.png" alt=""></p>
+
+<h6>
+<a id="flowerobj-fps-by-camera-distance-camera-moving-away" class="anchor" href="#flowerobj-fps-by-camera-distance-camera-moving-away" aria-hidden="true"><span class="octicon octicon-link"></span></a><code>flower.obj</code> FPS by camera distance, camera moving away</h6>
+
+<p><img src="img/flower-dist.png" alt=""></p>
+
+<ul>
+<li>Optimization (<code>cow.obj</code>)
+
+<ul>
+<li>Kernel: minor improvements (~10FPS)
+
+<ul>
+<li>Alter block size for different kernels to achieve higher warp count</li>
+<li>Substitute fixed divisions with corresponding multiplications for marginal performance gain</li>
+<li>Cache repetitive calculations; reorder executions to reduce execution dependency</li>
+<li>Optimize calculations to reduce register usage</li>
+</ul>
+</li>
+<li>Backface culling (for scanline)
+
+<ul>
+<li>Only useful when the object is big in window
+
+<ul>
+<li>Reduces rasterization time</li>
+</ul>
+</li>
+<li>Stream compaction overhead might be more significant and cancel out the benefit</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+<h6>
+<a id="backface-culling-performance-impact" class="anchor" href="#backface-culling-performance-impact" aria-hidden="true"><span class="octicon octicon-link"></span></a>Backface culling performance impact</h6>
+
+<p><img src="img/backface.png" alt=""></p>
+
+<h2>
+<a id="references" class="anchor" href="#references" aria-hidden="true"><span class="octicon octicon-link"></span></a>References</h2>
+
+<ul>
+<li>Line segment intersection test
+
+<ul>
+<li><a href="http://paulbourke.net/geometry/pointlineplane/">http://paulbourke.net/geometry/pointlineplane/</a></li>
+</ul>
+</li>
+<li>Vertex shader transformation
+
+<ul>
+<li><a href="http://www.songho.ca/opengl/gl_transform.html">http://www.songho.ca/opengl/gl_transform.html</a></li>
+</ul>
+</li>
+<li>Bresenham's line algorithm
+
+<ul>
+<li><a href="https://en.wikipedia.org/wiki/Bresenham%27s_line_algorithm">https://en.wikipedia.org/wiki/Bresenham%27s_line_algorithm</a></li>
+</ul>
+</li>
+<li>Tile-based rendering
+
+<ul>
+<li><a href="https://mediatech.aalto.fi/%7Esamuli/publications/laine2011hpg_paper.pdf">https://mediatech.aalto.fi/~samuli/publications/laine2011hpg_paper.pdf</a></li>
+</ul>
+</li>
+</ul>
+      </section>
+    </div>
+
+    <!-- FOOTER  -->
+    <div id="footer_wrap" class="outer">
+      <footer class="inner">
+        <p class="copyright">Project4-cuda-rasterizer maintained by <a href="https://github.com/StoneBird">StoneBird</a></p>
+        <p>Published with <a href="https://pages.github.com">GitHub Pages</a></p>
+      </footer>
+    </div>
+
+    
+
+  </body>
+</html>
